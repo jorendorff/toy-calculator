@@ -1,0 +1,78 @@
+<!doctype html>
+<html onclick="keepFocusInTextbox(event)">
+  <head>
+    <meta charset="utf-8">
+    <title>Compilers 101 - A toy calculator</title>
+    <script>var require = eval;</script>
+    <script src="third-party-scripts/assert.js"></script>
+    <script src="third-party-scripts/biginteger.js"></script>
+    <script src="third-party-scripts/Chart.js"></script>
+
+    <script src="calculator-parser.js"></script>
+    <script src="calculator-backends.js"></script>
+    <script src="ui.js"></script>
+    <style type="text/css">
+      body { background: white; color: black; position: absolute;
+          margin: 0; top: 0; bottom: 0; left: 0; right: 0;
+          font-size: 22px; }
+
+      #controls { background-color: beige;
+          position: absolute; top: 0; bottom: 0; left: 0; width: 30%;
+          box-sizing: border-box; 
+          -moz-box-sizing: border-box; 
+          -webkit-box-sizing: border-box; 
+          padding: 1em; overflow: auto; }
+
+      #repl { position: absolute; top: 0; bottom: 0; left: 30%; right: 0;
+          padding: 1em; overflow: auto; }
+
+      h1 { margin-top: 0; margin-bottom: 0em; font-size: 125%; }
+      h1 + div { margin: 0; }
+
+      form { margin: 0; padding: 0; }
+      #input { width: 100%; border: none; padding: 0; overflow: auto; resize: none; }
+
+      .input { color: blue; font: inherit; font-weight: bold; margin-top: .5em; }
+      .normalOutput { color: black; white-space: pre; }
+      .print { color: brown; }
+      .error { color: red; }
+      .propList { color: green; }
+      .message { color: green; }
+      .tabcomplete { color: purple; }
+
+      span.num { color: black; background-color: white; border-radius: 0.25em; padding: 0.1em 0.3em 0; margin: 0.1em 0.5em 0.1em; }
+      span.expr { display: inline-block; color: white; background-color: green; border-radius: 0.35em; border: 2px outset #339933; padding: 0.1em 0.3em; margin: 0.1em 0.5em; }
+      span.var { display: inline-block; color: black; background-color: #ff8833; border-radius: 0.25em; padding: 0.1em 0.3em 0; border: 2px outset #ff8833; margin: 0 0.5em 0; }
+
+      .srclink { font-size: 14px; }
+      ul#options { margin-left: 1em; margin-top: 1em; margin-left: 0; }
+      ul#options li { list-style-type: none; }
+
+      #sourcecode { font-family: sans-serif; font-size: 12px; padding: 1em; }
+
+      math { font-size: 28px; }
+    </style>
+  </head>
+
+  <body onload="init()">
+    <div id="controls">
+      <h1>Compilers 101 Toy Calculator</h1>
+      <p class="srclink"><a href="docs/calculator-parser.html">parser source</a>
+        | <a href="docs/calculator-backends.html">back-end source</a></p>
+      <ul id="options">
+        <li><label><input type="radio" name="mode" value="calc" checked>calculator mode</label>
+        <li><label><input type="radio" name="mode" value="fraction">fraction mode</label>
+        <li><label><input type="radio" name="mode" value="blocks">Scratch mode</label>
+        <li><label><input type="radio" name="mode" value="json">JSON mode</label>
+        <li><label><input type="radio" name="mode" value="mathml">MathML mode</label>
+        <li><label><input type="radio" name="mode" value="graph">graph mode</label>
+        <li><label><input type="radio" name="mode" value="complex">complex mode</label>
+      </ul>
+      <pre id="sourcecode"></pre>
+    </div>
+    <div id="repl">
+      <div id="output"></div>
+      <div><textarea id="input" class="input" wrap="off" onkeydown="inputKeydown(event)" rows="1"></textarea></div>
+    </div>
+  </body>
+</html>
