@@ -57,7 +57,7 @@ function gcd(a, b) {
 function Fraction(n, d) {
     if (d === undefined)
         d = new BigInteger(1);
-    var x = gcd(n, d);
+    var x = gcd(n.abs(), d);
     this.n = n.divide(x);
     this.d = d.divide(x);
 }
