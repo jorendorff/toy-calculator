@@ -287,15 +287,52 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 
 // This one returns a JS function that operates on complex numbers.
 //
-// This is a more advanced example of code generation.
+// This is a more advanced example of a compiler. It has a lowering phase
+// and a few simple optimizations.
+//
+// The input string `code` is a formula, for example, `"(z+1)/(z-1)"`,
+// that uses a complex variable `z`.
+//
+// This returns a JS function that takes two arguments, `z_re` and `z_im`,
+// the real and imaginary parts of a complex number *z*,
+// and returns an object `{re: some number, im: some number}`,
+// representing the complex result of computing the input formula,
+// (*z*+1)/(*z*-1). Here is the actual output in that case:
+//
+//     (function anonymous(z_re, z_im) {
+//     var t0 = (z_re+1);
+//     var t1 = (z_re-1);
+//     var t2 = (z_im*z_im);
+//     var t3 = ((t1*t1)+t2);
+//     return {re: (((t0*t1)+t2)/t3), im: (((z_im*t1)-(t0*z_im))/t3)};
+//     })
 //
 function compileToComplexFunction(code) {
-    // The plan here is to "lower" the input code, which operates on complex
-    // numbers, to a sequence of instructions that operate on ordinary
-    // JavaScript floating-point numbers. Before we implement lower(), we need
-    // to define objects representing these instructions. (We could just use strings,
-    // but it turns out to be really complicated, and it's hard to apply even basic
-    // optimizations to strings of JS code.)
+    // This compiler uses `parse` as its front end. Parsing produces an AST
+    // which represents operations on complex numbers.
+    //
+    // Then, we "lower" the AST to an array of "instructions" which represent
+    // basic arithmetic operations on ordinary JavaScript floating-point
+    // numbers.
+    //
+    // Now, we don't have to do this; we could define a class `Complex`, with
+    // methods `.add()`, `.sub()`, etc., and use one object per complex number.
+    // But lowering leads to faster JS code--we will generate code here that
+    // does not allocate any objects for intermediate results.
+    //
+    // Before we implement lower(), we need to define objects representing
+    // these instructions. (We could just use strings of JS code, but it turns
+    // out to be really complicated, and it's hard to apply even basic
+    // optimizations to strings.)
+    //
+    // Each instruction represents a single JS expression, which is one of:
+    //   1. the real or imaginary part of the argument z;
+    //   2. a numeric constant;
+    //   3. an arithmetic operation, one of `+ - * /`, on two previous instructions.
+    //
+    // These instructions are stored sequentially in the array `values`. One
+    // reason we store this in an array is for "common subexpression
+    // elimination" (see toIndex).
 
     var values = [
         {type: "arg", arg0: null, arg1: null, id: "z_re"},
@@ -307,10 +344,16 @@ function compileToComplexFunction(code) {
     }
 
     function toIndex(node) {
+        // Common subexpression elimination. If we have already computed this
+        // exact value, instead of computing it again, just reuse the already-
+        // computed value.
         for (var i = 0; i < values.length; i++) {
             if (nodesEqual(values[i], node))
                 return i;
         }
+
+        // We have not already computed this value, so add the instruction to
+        // the list.
         values.push(node);
         return values.length - 1;
     }
