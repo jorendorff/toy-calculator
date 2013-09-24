@@ -344,24 +344,24 @@ function go() {
     try {
         var result = parseModes[mode](question);
         switch (mode) {
-        case 'calc':
-            Shell.printAnswer(result);
-            break;
-
-        case 'fraction':
-            Shell.printAnswer(result);
+        case 'json':
+            Shell.printAnswer(JSON.stringify(result, undefined, "    "));
             break;
 
         case 'blocks':
             writeNode("normalOutput", result);
             break;
 
-        case 'json':
-            Shell.printAnswer(JSON.stringify(result, undefined, "    "));
-            break;
-
         case 'mathml':
             writeNode("normalOutput", result.element);
+            break;
+
+        case 'calc':
+            Shell.printAnswer(result);
+            break;
+
+        case 'fraction':
+            Shell.printAnswer(result);
             break;
 
         case 'graph':
