@@ -1,6 +1,6 @@
 // # calculator-parser.js
 //
-// a simple calculator language, in three acts
+// a simple calculator language
 
 // This program parses a very simple language that just does a little basic
 // arithmetic. Here are some simple examples of the sort of thing you can
@@ -14,7 +14,7 @@
 // If you’d like to try it out, open [calculator.html](../calculator.html).
 
 
-// ## Act One – Breaking code down into tokens
+// ## Part One – Breaking code down into tokens
 
 // This function, `tokenize(code)`, takes a string `code` and splits it into
 // *tokens*, the numbers, words, and symbols that make up our little calculator
@@ -59,37 +59,17 @@ assert(isName("xyz"));
 assert(!isName("+"));
 
 
-// ## Act Three – Parser output
+// ## Part Two – The parser
 
-// The parser’s only job is to *decode* the input.
+// The parser’s job is to decode the input and build a collection of objects
+// that represent the code.
 //
-// *Executing* a program is this object’s job. I’m putting this
-// right up front so you can see what the language can actually do,
-// before reading on.
-//
-// The parser will call these six methods as it decodes each
-// piece of the input code.
-//
-var calculator = {
-    number: function (s) { return parseInt(s); },
-    add: function (a, b) { return a + b; },
-    sub: function (a, b) { return a - b; },
-    mul: function (a, b) { return a * b; },
-    div: function (a, b) { return a / b; },
-    _variables: Object.create(null),
-    name: function (name) { return this._variables[name] || 0; }
-};
-
-calculator._variables.e = Math.E;
-calculator._variables.pi = Math.PI;
-
-
-
-// ## Act Two – The parser
+// (This is just like the way a Web browser decodes an HTML file and builds the
+// DOM. The part that does that is called the HTML parser.)
 
 // Parse the given string `code` as an expression in our little language.
 //
-function parse(code, out) {
+function parse(code) {
     // Break the input into tokens.
     var tokens = tokenize(code);
 
@@ -114,8 +94,8 @@ function parse(code, out) {
     // function.
 
     // Parse a *PrimaryExpr*—that is, tokens matching one of the three syntax
-    // rules below. Whatever kind of expression we find, we return the result
-    // of some `out.something()` method.
+    // rules below. Whatever kind of expression we find, we return the corresponding
+    // JS object.
     //
     // <div style="margin-left: 2em">
     //  <div>*PrimaryExpr* **:**</div>
@@ -130,10 +110,10 @@ function parse(code, out) {
 
         if (isNumber(t)) {
             consume(t);
-            return out.number(t);
+            return {type: "number", value: t};
         } else if (isName(t)) {
             consume(t);
-            return out.name(t);
+            return {type: "name", id: t};
         } else if (t === "(") {
             consume(t);
             var expr = parseExpr();
@@ -160,10 +140,7 @@ function parse(code, out) {
         while (t === "*" || t === "/") {
             consume(t);
             var rhs = parsePrimaryExpr();
-            if (t === "*")
-                expr = out.mul(expr, rhs);
-            else
-                expr = out.div(expr, rhs);
+            expr = {type: t, left: expr, right: rhs};
             t = peek();
         }
         return expr;
@@ -181,10 +158,7 @@ function parse(code, out) {
         while (t === "+" || t === "-") {
             consume(t);
             var rhs = parseMulExpr();
-            if (t === "+")
-                expr = out.add(expr, rhs);
-            else
-                expr = out.sub(expr, rhs);
+            expr = {type: t, left: expr, right: rhs};
             t = peek();
         }
         return expr;
@@ -198,9 +172,19 @@ function parse(code, out) {
     // rule, which is an error.
     if (position !== tokens.length)
         throw new SyntaxError("unexpected '" + peek() + "'");
+
     return result;
 }
 
-assert.strictEqual(parse("2 + 2", calculator), 4);
-assert.strictEqual(parse("3 * 4 * 5", calculator), 60);
-assert.strictEqual(parse("5 * (2 + 2)", calculator), 20);
+// And test it.
+assert.deepEqual(
+    parse("(1 + 2) / 3"),
+    {
+        type: "/",
+        left: {
+            type: "+",
+            left: {type: "number", value: "1"},
+            right: {type: "number", value: "2"}
+        },
+        right: {type: "number", value: "3"}
+    });

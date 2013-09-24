@@ -1,6 +1,6 @@
 // # calculator-backends.js
 //
-// more things to do with a simple calculator parser
+// things to do with a simple calculator parser
 //
 // [calculator-parser.js](calculator-parser.html) contains a simple parser.
 // It contains enough code that you can actually do some basic math with it.
@@ -11,117 +11,23 @@
 //
 // [Try them out.](../calculator.html)
 
-// ## Interpreters
-
-// ### 1. Evaluate using floating-point numbers
-
-// This behaves like a stripped-down version of JavaScript `eval()`.
-function evaluateAsFloat(code) {
-    var calculator = {
-        number: function (s) { return parseInt(s); },
-        add: function (a, b) { return a + b; },
-        sub: function (a, b) { return a - b; },
-        mul: function (a, b) { return a * b; },
-        div: function (a, b) { return a / b; },
-        _variables: Object.create(null),
-        name: function (name) { return this._variables[name] || 0; }
-    };
-
-    calculator._variables.e = Math.E;
-    calculator._variables.pi = Math.PI;
-
-    return parse(code, calculator);
-}
-
-
-// ### 2. Evaluate using precise fraction arithmetic
-//
-// Our little language is a tiny subset of JavaScript. But that doesn’t meant
-// it has to behave exactly like JavaScript. This is our language.
-// It can behave however we want.
-
-// So how about a calculator that does arbitrary precision arithmetic?
-// Let’s start by defining a `Fraction` class...
-
-var BigInteger = require('biginteger').BigInteger;
-
-function gcd(a, b) {
-    while (!b.isZero()) {
-        var tmp = a;
-        a = b;
-        b = tmp.remainder(b);
-    }
-    return a;
-}
-
-function Fraction(n, d) {
-    if (d === undefined)
-        d = new BigInteger(1);
-    var x = gcd(n.abs(), d);
-    this.n = n.divide(x);
-    this.d = d.divide(x);
-}
-
-// …and some Fraction methods. You learned these techniques in grade school,
-// though you may have forgotten some of them.
-Fraction.prototype = {
-    add: function (x) {
-        return new Fraction(this.n.multiply(x.d).add(x.n.multiply(this.d)),
-                            this.d.multiply(x.d));
-    },
-    negate: function (x) {
-        return new Fraction(this.n.negate(), this.d);
-    },
-    sub: function (x) {
-        return this.add(x.negate());
-    },
-    mul: function (x) {
-        return new Fraction(this.n.multiply(x.n), this.d.multiply(x.d));
-    },
-    div: function (x) {
-        return new Fraction(this.n.multiply(x.d), this.d.multiply(x.n));
-    },
-    toString: function () {
-        var ns = this.n.toString(), ds = this.d.toString();
-        if (ds === "1")
-            return ns;
-        else
-            return ns + "/" + ds;
-    }
-};
-
-// Now simply write an `out` object that computes the results using `Fraction`
-// objects rather than JavaScript numbers. It’s almost too easy.
-function evaluateAsFraction(code) {
-    var fractionCalculator = {
-        number: function (s) { return new Fraction(new BigInteger(s)); },
-        add: function (a, b) { return a.add(b); },
-        sub: function (a, b) { return a.sub(b); },
-        mul: function (a, b) { return a.mul(b); },
-        div: function (a, b) { return a.div(b); },
-        name: function (name) { throw new SyntaxError("no variables in fraction mode, sorry"); }
-    };
-    return parse(code, fractionCalculator);
-}
-
-// Our tiny programming language is suddenly doing something JavaScript itself
-// doesn’t do: arithmetic with exact (not floating-point) results.  Tests:
-assert.strictEqual(evaluateAsFraction("1 / 3").toString(), "1/3");
-assert.strictEqual(evaluateAsFraction("(2/3) * (3/2)").toString(), "1");
-assert.strictEqual(evaluateAsFraction("1/7 + 4/7 + 2/7").toString(), "1");
-assert.strictEqual(
-    evaluateAsFraction("5996788328646786302319492/2288327879043508396784319").toString(),
-    "324298349324/123749732893");
-
-
 // ## Code as data
 
-// ### 3. Convert to DOM
+// ### 1. Show the JSON
 //
-// Both examples above compute a result.  But that isn’t the only thing you can
-// do with language. Let’s make a program that doesn’t compute anything at all:
-// it simply spits out DOM nodes that show how the program would look in
-// Scratch. (!)
+// Unmodified, the parser simply builds a tree describing the input
+// formula. This is called an abstract syntax tree, or AST.
+//
+function convertToJSON(code) {
+    return parse(code);
+}
+
+
+// ### 2. Convert to DOM
+//
+// Of course one of the nice things about JSON is that there are many ways to
+// display it. Here’s code that spits out DOM nodes that show how the program
+// would look in Scratch. (!)
 
 // Helper function to create DOM elements.
 function span(className, contents) {
@@ -136,58 +42,31 @@ function span(className, contents) {
     return e;
 }
 
-// Yet another pluggable `out` object.
 function convertToDOM(code) {
-    var spanBuilder = {
-        number: function (s) { return span("num", [s]); },
-        add: function (a, b) { return span("expr", [a, "+", b]); },
-        sub: function (a, b) { return span("expr", [a, "\u2212", b]); },  // &minus;
-        mul: function (a, b) { return span("expr", [a, "\u00d7", b]); },  // &times;
-        div: function (a, b) { return span("expr", [a, "\u00f7", b]); },  // &divide;
-        name: function (name) { return span("var", [name]); }
+    var fancyOperator = {
+        "+": "+",
+        "-": "\u2212",  // &minus;
+        "*": "\u00d7",  // &times;
+        "/": "\u00f7"   // &divide;
     };
-    return parse(code, spanBuilder);
+
+    function convert(obj) {
+        switch (obj.type) {
+        case "number":
+            return span("num", [obj.value]);
+        case "+": case "-": case "*": case "/":
+            return span("expr", [convert(obj.left),
+                                 fancyOperator[obj.type],
+                                 convert(obj.right)]);
+        case "name":
+            return span("var", [obj.id]);
+        }
+    }
+    return convert(parse(code));
 }
 
 
-// ### 4. Convert to JSON
-//
-// Let’s make one that builds a tree describing the input formula. This is
-// called an abstract syntax tree, or AST. **This is most likely what you would
-// do if you planned to make your own programming language.** It was once
-// common to parse and emit code in a single pass. Languages were carefully
-// designed to make sure that was possible. Today, there’s really no reason not
-// to build a complete AST or other intermediate form, then emit code in a
-// second pass.
-
-// Each method simply returns a new JS object.
-function convertToAST(code) {
-    var astBuilder = {
-        number: function (s) { return {type: "number", value: s}; },
-        add: function (a, b) { return {type: "add", left: a, right: b}; },
-        sub: function (a, b) { return {type: "sub", left: a, right: b}; },
-        mul: function (a, b) { return {type: "mul", left: a, right: b}; },
-        div: function (a, b) { return {type: "div", left: a, right: b}; },
-        name: function (name) { return {type: "name", name: name}; }
-    };
-    return parse(code, astBuilder);
-}
-
-// And test it.
-assert.deepEqual(
-    convertToAST("(1 + 2) / 3"),
-    {
-        type: "div",
-        left: {
-            type: "add",
-            left: {type: "number", value: "1"},
-            right: {type: "number", value: "2"}
-        },
-        right: {type: "number", value: "3"}
-    });
-
-
-// ### 5. MathML output
+// ### 3. MathML output
 //
 // One more riff on this theme: How about generating beautiful MathML output?
 // (Unfortunately, some browsers still do not support MathML. Firefox does.)
@@ -233,17 +112,141 @@ function make(name, precedence, contents) {
 }
 
 function convertToMathML(code) {
-    var mathmlBuilder = {
-        number: function (s) { return make("mn", 3, [s]); },
-        add: function (a, b) { return make("mrow", 1, [a, make("mo", 3, ["+"]), b]); },
-        sub: function (a, b) { return make("mrow", 1, [a, make("mo", 3, ["-"]), b]); },
-        mul: function (a, b) { return make("mrow", 2, [a, b]); },
-        div: function (a, b) { return make("mfrac", null, [a, b]); },
-        name: function (name) { return make("mi", 3, [name]); }
+    function convert(obj) {
+        switch (obj.type) {
+        case "number":
+            return make("mn", 3, [obj.value]);
+        case "name":
+            return make("mi", 3, [obj.id]);
+        case "+":
+            return make("mrow", 1, [convert(obj.left),
+                                    make("mo", 3, ["+"]),
+                                    convert(obj.right)]);
+        case "-":
+            return make("mrow", 1, [convert(obj.left),
+                                    make("mo", 3, ["-"]),
+                                    convert(obj.right)]);
+        case "*":
+            return make("mrow", 2, [convert(obj.left),
+                                    convert(obj.right)]);
+        case "/":
+            return make("mfrac", null, [convert(obj.left), convert(obj.right)]);
+        }
     };
-    var e = parse(code, mathmlBuilder);
+    var e = convert(parse(code));
     return make("math", null, [e]);
 }
+
+
+// ## Interpreters
+
+// ### 4. Evaluate using floating-point numbers
+
+// Now let’s try actually performing some computation using the program we
+// read. This behaves like a stripped-down version of JavaScript `eval()`.
+function evaluateAsFloat(code) {
+    var variables = Object.create(null);
+    variables.e = Math.E;
+    variables.pi = Math.PI;
+
+    function evaluate(obj) {
+        switch (obj.type) {
+        case "number":  return parseInt(obj.value);
+        case "name":  return variables[obj.id] || 0;
+        case "+":  return evaluate(obj.left) + evaluate(obj.right);
+        case "-":  return evaluate(obj.left) - evaluate(obj.right);
+        case "*":  return evaluate(obj.left) * evaluate(obj.right);
+        case "/":  return evaluate(obj.left) / evaluate(obj.right);
+        }
+    }
+    return evaluate(parse(code));
+}
+
+assert.strictEqual(evaluateAsFloat("2 + 2"), 4);
+assert.strictEqual(evaluateAsFloat("3 * 4 * 5"), 60);
+assert.strictEqual(evaluateAsFloat("5 * (2 + 2)"), 20);
+
+
+// ### 5. Evaluate using precise fraction arithmetic
+//
+// Our little language is a tiny subset of JavaScript. But that doesn’t meant
+// it has to behave exactly like JavaScript. This is our language.
+// It can behave however we want.
+
+// So how about a calculator that does arbitrary precision arithmetic?
+// Let’s start by defining a `Fraction` class...
+
+var BigInteger = require('biginteger').BigInteger;
+
+function gcd(a, b) {
+    while (!b.isZero()) {
+        var tmp = a;
+        a = b;
+        b = tmp.remainder(b);
+    }
+    return a;
+}
+
+function Fraction(n, d) {
+    if (d === undefined)
+        d = new BigInteger(1);
+    var x = gcd(n.abs(), d);  // Simplify the fraction.
+    this.n = n.divide(x);
+    this.d = d.divide(x);
+}
+
+// …and some Fraction methods. You learned these techniques in grade school,
+// though you may have forgotten some of them.
+Fraction.prototype = {
+    add: function (x) {
+        return new Fraction(this.n.multiply(x.d).add(x.n.multiply(this.d)),
+                            this.d.multiply(x.d));
+    },
+    negate: function (x) {
+        return new Fraction(this.n.negate(), this.d);
+    },
+    sub: function (x) {
+        return this.add(x.negate());
+    },
+    mul: function (x) {
+        return new Fraction(this.n.multiply(x.n), this.d.multiply(x.d));
+    },
+    div: function (x) {
+        return new Fraction(this.n.multiply(x.d), this.d.multiply(x.n));
+    },
+    toString: function () {
+        var ns = this.n.toString(), ds = this.d.toString();
+        if (ds === "1")
+            return ns;
+        else
+            return ns + "/" + ds;
+    }
+};
+
+// Now simply write an `out` object that computes the results using `Fraction`
+// objects rather than JavaScript numbers. It’s almost too easy.
+function evaluateAsFraction(code) {
+    function evaluate(obj) {
+        switch (obj.type) {
+        case "number":  return new Fraction(new BigInteger(obj.value));
+        case "+":  return evaluate(obj.left).add(evaluate(obj.right));
+        case "-":  return evaluate(obj.left).sub(evaluate(obj.right));
+        case "*":  return evaluate(obj.left).mul(evaluate(obj.right));
+        case "/":  return evaluate(obj.left).div(evaluate(obj.right));
+        case "name":  throw new SyntaxError("no variables in fraction mode, sorry");
+        }
+    }
+    return evaluate(parse(code));
+}
+
+// Our tiny programming language is suddenly doing something JavaScript itself
+// doesn’t do: arithmetic with exact (not floating-point) results.  Tests:
+assert.strictEqual(evaluateAsFraction("1 / 3").toString(), "1/3");
+assert.strictEqual(evaluateAsFraction("(2/3) * (3/2)").toString(), "1");
+assert.strictEqual(evaluateAsFraction("1/7 + 4/7 + 2/7").toString(), "1");
+assert.strictEqual(
+    evaluateAsFraction("5996788328646786302319492 / 2288327879043508396784319").toString(),
+    "324298349324/123749732893");
 
 
 // ## Compilers
@@ -257,22 +260,21 @@ function convertToMathML(code) {
 // they are virtually identical, so code generation is very easy.
 //
 function compileToJSFunction(code) {
-    var jsFunctionBuilder = {
-        number: function (s) { return s; },
-        add: function (a, b) { return "(" + a + " + " + b + ")"; },
-        sub: function (a, b) { return "(" + a + " - " + b + ")"; },
-        mul: function (a, b) { return "(" + a + " * " + b + ")"; },
-        div: function (a, b) { return "(" + a + " / " + b + ")"; },
-        name: function (name) {
+    function emit(obj) {
+        switch (obj.type) {
+        case "number":
+            return obj.value;
+        case "name":
             // Only allow the name "x".
-            if (name !== "x")
+            if (obj.id !== "x")
                 throw SyntaxError("only the name 'x' is allowed");
-            return name;
+            return obj.id;
+        case "+": case "-": case "*": case "/":
+            return "(" + emit(obj.left) + " " + obj.type + " " + emit(obj.right) + ")";
         }
-    };
+    }
 
-    var code = parse(code, jsFunctionBuilder);
-    return Function("x", "return " + code + ";");
+    return Function("x", "return " + emit(parse(code)) + ";");
 }
 
 assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(1), 0);
@@ -285,7 +287,7 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 
 // This one returns a JS function that operates on complex numbers.
 //
-// TODO - explain what is going on here.
+// Here is a more advanced example of code generation.
 //
 function compileToComplexFunction(code) {
     var nextTmpId = 0;
@@ -294,25 +296,22 @@ function compileToComplexFunction(code) {
         return "tmp" + nextTmpId++;
     }
 
-    var complexFunctionBuilder = {
-        number: function (s) {
-            return { setup: "", re: s, im: "0" };
-        },
-        add: function (a, b) {
+    function emit(obj) {
+        switch (obj.type) {
+        case "number":
+            return { setup: "", re: obj.value, im: "0" };
+
+        case "+": case "-":
+            var a = emit(obj.left), b = emit(obj.right);
             return {
                 setup: a.setup + b.setup,
-                re: a.re + " + " + b.re,
-                im: a.im + " + " + b.im
+                re: a.re + " " + obj.type + " (" + b.re + ")",
+                im: a.im + " " + obj.type + " (" + b.im + ")"
             };
-        },
-        sub: function (a, b) {
-            return {
-                setup: a.setup + b.setup,
-                re: a.re + " - " + b.re,
-                im: a.im + " - " + b.im
-            };
-        },
-        mul: function (a, b) {
+
+        case "*":
+            var a = emit(obj.left), b = emit(obj.right);
+
             // This requires some setup.  First write some code to store the
             // real and imaginary parts of a and b in temporary variables.
             // We have to store them in temporary variables because the formula
@@ -331,8 +330,10 @@ function compileToComplexFunction(code) {
                 re: "A_re * B_re - A_im * B_im".replace(/A/g, atmp).replace(/B/g, btmp),
                 im: "A_re * B_im + A_im * B_re".replace(/A/g, atmp).replace(/B/g, btmp)
             };
-        },
-        div: function (a, b) {
+
+        case "/":
+            var a = emit(obj.left), b = emit(obj.right);
+
             // Just as for multiplication, first write some code to store the real
             // and imaginary parts of a and b in temporary variables.
             var atmp = genName(),
@@ -347,22 +348,21 @@ function compileToComplexFunction(code) {
                 re: "(A_re * B_re + A_im * B_im) / T".replace(/A/g, atmp).replace(/B/g, btmp).replace(/T/g, tmp),
                 im: "(A_im * B_re - A_re * B_im) / T".replace(/A/g, atmp).replace(/B/g, btmp).replace(/T/g, tmp)
             };
-        },
-        name: function (name) {
-            if (name === "i")
+
+        case "name":
+            if (obj.id === "i")
                 return {setup: "", re: "0", im: "1"};
-            if (name !== "z")
-                throw SyntaxError("undefined variable: " + name);
+            if (obj.id !== "z")
+                throw SyntaxError("undefined variable: " + obj.id);
             return {
                 setup: "",
-                re: name + "_re",
-                im: name + "_im"
+                re: obj.id + "_re",
+                im: obj.id + "_im"
             };
         }
-    };
+    }
 
-    var result = parse(code, complexFunctionBuilder);
-    var tmp = genName();
+    var result = emit(parse(code));
     var code =
         result.setup +
         "return {re: " + result.re + ", im: " + result.im + "};\n";
@@ -377,17 +377,16 @@ function compileToComplexFunction(code) {
          "z_im = " + result.im + ";\n" +
          "z_re = " + tmp + ";\n" +
     */
-
 }
 
 // The last bit of code here simply stores all seven back ends in one place
 // where other code can get to them.
 var parseModes = {
+    json: convertToJSON,
+    blocks: convertToDOM,
+    mathml: convertToMathML,
     calc: evaluateAsFloat,
     fraction: evaluateAsFraction,
-    blocks: convertToDOM,
-    json: convertToAST,
-    mathml: convertToMathML,
     graph: compileToJSFunction,
     complex: compileToComplexFunction
 };
