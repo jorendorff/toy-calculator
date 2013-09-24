@@ -287,9 +287,16 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 
 // This one returns a JS function that operates on complex numbers.
 //
-// Here is a more advanced example of code generation.
+// This is a more advanced example of code generation.
 //
 function compileToComplexFunction(code) {
+    // The plan here is to "lower" the input code, which operates on complex
+    // numbers, to a sequence of instructions that operate on ordinary
+    // JavaScript floating-point numbers. Before we implement lower(), we need
+    // to define objects representing these instructions. (We could just use strings,
+    // but it turns out to be really complicated, and it's hard to apply even basic
+    // optimizations to strings of JS code.)
+
     var values = [
         {type: "arg", arg0: null, arg1: null, id: "z_re"},
         {type: "arg", arg0: null, arg1: null, id: "z_im"}
@@ -316,14 +323,16 @@ function compileToComplexFunction(code) {
         return toIndex({type: op, arg0: a, arg1: b });
     }
 
+    function isNumber(i) {
+        return values[i].type === "number";
+    }
+
     function isZero(i) {
-        var node = values[i];
-        return node.type === "number" && node.arg0 === "0";
+        return isNumber(i) && values[i].arg0 === "0";
     }
 
     function isOne(i) {
-        var node = values[i];
-        return node.type === "number" && node.arg0 === "1";
+        return isNumber(i) && values[i].arg0 === "1";
     }
 
     function add(a, b) {
@@ -331,12 +340,16 @@ function compileToComplexFunction(code) {
             return b;
         if (isZero(b))  // simplify (a+0) to a
             return a;
+        if (isNumber(a) && isNumber(b))  // constant-fold (1+2) to 3
+            return num(String(Number(a.arg0) + Number(b.arg0)));
         return op("+", a, b);
     }
 
     function sub(a, b) {
         if (isZero(b))  // simplify (a-0) to a
             return a;
+        if (isNumber(a) && isNumber(b))  // constant-fold (3-2) to 1
+            return num(String(Number(a.arg0) - Number(b.arg0)));
         return op("-", a, b);
     }
 
@@ -349,12 +362,16 @@ function compileToComplexFunction(code) {
             return b;
         if (isOne(b))  // simplify a*1 to a
             return a;
+        if (isNumber(a) && isNumber(b))  // constant-fold (2*2) to 4
+            return num(String(Number(a.arg0) * Number(b.arg0)));
         return op("*", a, b);
     }
 
     function div(a, b) {
         if (isOne(b))  // simplify a/1 to a
             return a;
+        if (isNumber(a) && isNumber(b) && !isZero(b))  // constant-fold 4/2 to 2
+            return num(String(Number(a.arg0) / Number(b.arg0)));
         return op("/", a, b);
     }
 
@@ -367,9 +384,10 @@ function compileToComplexFunction(code) {
 
         case "+": case "-":
             var a = lower(obj.left), b = lower(obj.right);
+            var f = (obj.type === "+" ? add : sub);
             return {
-                re: op(obj.type, a.re, b.re),
-                im: op(obj.type, a.im, b.im)
+                re: f(a.re, b.re),
+                im: f(a.im, b.im)
             };
 
         case "*":
