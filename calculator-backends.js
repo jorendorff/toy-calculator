@@ -291,8 +291,8 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 //
 function compileToComplexFunction(code) {
     var values = [
-        {type: "arg", arg0: null, arg1: null, useCount: 0, id: "z_re"},
-        {type: "arg", arg0: null, arg1: null, useCount: 0, id: "z_im"}
+        {type: "arg", arg0: null, arg1: null, id: "z_re"},
+        {type: "arg", arg0: null, arg1: null, id: "z_im"}
     ];
 
     function nodesEqual(n1, n2) {
@@ -308,8 +308,13 @@ function compileToComplexFunction(code) {
         return values.length - 1;
     }
 
-    function num(s) { return toIndex({type: "number", arg0: s, arg1: null, useCount: 0}); }
+    function num(s) {
+        return toIndex({type: "number", arg0: s, arg1: null});
+    }
 
+    function op(op, a, b) {
+        return toIndex({type: op, arg0: a, arg1: b });
+    }
 
     function isZero(i) {
         var node = values[i];
@@ -321,56 +326,37 @@ function compileToComplexFunction(code) {
         return node.type === "number" && node.arg0 === "1";
     }
 
-    function op(op, a, b) {
-        // First, attempt a few peephole optimizations.
-        switch (op) {
-        case "+":
-            if (isZero(a)) {
-                values[b].useCount++;  // simplify (0+b) to b
-                return b;
-            }
-            if (isZero(b)) {
-                values[a].useCount++;  // simplify (a+0) to a
-                return a;
-            }
-            break;
-
-        case "-":
-            if (isZero(b)) {
-                values[a].useCount++;  // simplify (a-0) to a
-                return a;
-            }
-            break;
-
-        case "*":
-            if (isZero(a))
-                return a;  // simplify 0*b to 0
-            if (isZero(b))
-                return b;  // simplify a*0 to 0
-            if (isOne(a)) {
-                values[b].useCount++;  // simplify 1*b to b
-                return b;
-            }
-            if (isOne(b)) {
-                values[a].useCount++;  // simplify a*1 to a
-                return a;
-            }
-            break;
-        }
-
-        var n = values.length;
-        var result = toIndex({type: op, arg0: a, arg1: b, useCount: 0});
-        if (result === n) {
-            values[a].useCount++;
-            values[b].useCount++;
-        }
-        return result;
+    function add(a, b) {
+        if (isZero(a))  // simplify (0+b) to b
+            return b;
+        if (isZero(b))  // simplify (a+0) to a
+            return a;
+        return op("+", a, b);
     }
 
-    function add(a, b) { return op("+", a, b); }
-    function sub(a, b) { return op("-", a, b); }
-    function mul(a, b) { return op("*", a, b); }
-    function div(a, b) { return op("/", a, b); }
+    function sub(a, b) {
+        if (isZero(b))  // simplify (a-0) to a
+            return a;
+        return op("-", a, b);
+    }
+
+    function mul(a, b) {
+        if (isZero(a))  // simplify 0*b to 0
+            return a;
+        if (isZero(b))  // simplify a*0 to 0
+            return b;
+        if (isOne(a))  // simplify 1*b to b
+            return b;
+        if (isOne(b))  // simplify a*1 to a
+            return a;
+        return op("*", a, b);
+    }
+
+    function div(a, b) {
+        if (isOne(b))  // simplify a/1 to a
+            return a;
+        return op("/", a, b);
+    }
 
     // Reduce obj, which represents an operation on complex numbers,
     // to a pair of expressions on floating-point numbers.
@@ -411,6 +397,16 @@ function compileToComplexFunction(code) {
         }
     }
 
+    var binaryOps = {"+": 1, "-": 1, "*": 1, "/": 1};
+    var useCounts = [];
+    for (var i = 0; i < values.length; i++) {
+        useCounts[i] = 0;
+        if (values[i].type in binaryOps) {
+            useCounts[node.arg0]++;
+            useCounts[node.arg1]++;
+        }
+    }
+
     var nextid = 0;
 
     function to_js(i, force) {
@@ -421,7 +417,7 @@ function compileToComplexFunction(code) {
         if (!force) {
             if (node.id !== undefined)
                 return node.id;
-            if (node.useCount > 1) {
+            if (useCounts[i] > 1) {
                 node.id = "t" + nextid++;
                 return node.id;
             }
