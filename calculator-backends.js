@@ -223,7 +223,7 @@ Fraction.prototype = {
     }
 };
 
-// Now simply write an `out` object that computes the results using `Fraction`
+// Now simply write an interpreter that computes the results using `Fraction`
 // objects rather than JavaScript numbers. It’s almost too easy.
 function evaluateAsFraction(code) {
     function evaluate(obj) {
@@ -509,7 +509,7 @@ function compileToComplexFunction(code) {
         return useCounts;
     }
 
-    function ir_to_js(values, result) {
+    function irToJS(values, result) {
         var useCounts = computeUseCounts(values);
         var code = "";
         var next_temp_id = 0;
@@ -533,7 +533,7 @@ function compileToComplexFunction(code) {
 
     var ast = parse(code);
     var result = lower(ast);
-    var code = ir_to_js(values, result);
+    var code = irToJS(values, result);
     console.log(code);
     return Function("z_re, z_im", code);
 
