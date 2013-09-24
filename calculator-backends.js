@@ -308,62 +308,99 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 //     })
 //
 function compileToComplexFunction(code) {
-    // This compiler uses `parse` as its front end. Parsing produces an AST
-    // which represents operations on complex numbers.
+    // The first thing here is a lot of code about "values". This takes some
+    // explanation.
     //
-    // Then, we "lower" the AST to an array of "instructions" which represent
-    // basic arithmetic operations on ordinary JavaScript floating-point
-    // numbers.
+    // `compileToComplexFunction` works in three steps.
     //
-    // Now, we don't have to do this; we could define a class `Complex`, with
-    // methods `.add()`, `.sub()`, etc., and use one object per complex number.
-    // But lowering leads to faster JS code--we will generate code here that
-    // does not allocate any objects for intermediate results.
+    // 1. It uses `parse` as its front end. We get an AST that represents
+    //    operations on complex numbers.
+    //
+    // 2. Then, it **lowers** the AST to an *intermediate representation* (IR)
+    //    that’s sort of halfway between the AST and JS code.
+    //
+    //    The IR here is an array of *values*, basic arithmetic operations on
+    //    plain old JS floating-point numbers. If we end up needing JS to
+    //    compute `(z_re + 1) * (z_re - 1), then each subexpression there ends
+    //    up being a value, represented by an object in the IR.
+    //
+    //    Once we have the IR, we can throw away the AST. The IR represents the
+    //    same formula, but in a different form. Lowering breaks down complex
+    //    arithmetic into sequences of JS numeric operations.  JS won't know
+    //    it's doing complex math.
+    //
+    // 3. Lastly, we convert the IR to JS code.
+    //
+    // **Why lowering?** We don't have to do it this way; we could define a
+    // class `Complex`, with methods `.add()`, `.sub()`, etc., and generate JS
+    // code that uses that.  Lowering leads to faster JS code: we'll generate
+    // code here that does not allocate any objects for intermediate results.
+
+    // #### About the IR
     //
     // Before we implement lower(), we need to define objects representing
-    // these instructions. (We could just use strings of JS code, but it turns
+    // values. (We could just use strings of JS code, but it turns
     // out to be really complicated, and it's hard to apply even basic
     // optimizations to strings.)
     //
-    // Each instruction represents a single JS expression, which is one of:
-    //   1. the real or imaginary part of the argument z;
-    //   2. a numeric constant;
-    //   3. an arithmetic operation, one of `+ - * /`, on two previous instructions.
+    // We call these instructions "values".  Each value represents a single JS
+    // expression that evaluates to a number.  A value is one of:
     //
-    // These instructions are stored sequentially in the array `values`. One
-    // reason we store this in an array is for "common subexpression
-    // elimination" (see toIndex).
-
+    //   1. `z_re` or `z_im`, the real or imaginary part of the argument z; or
+    //   2. a numeric constant; or
+    //   3. an arithmetic operation, one of `+ - * /`, on two previously-
+    //      calculated values.
+    //
+    // And each value is represented by a plain old JSON object, as follows:
+    //
+    //   1. `{type: "arg", arg0: "z_re"` or `"z_im"}`
+    //   2. `{type: "number", arg0: (string picture of number)}`
+    //   3. `{type: (one of "+" "-" "*" "/"), arg0: (int), arg1: (int)}`
+    //
+    // All values are stored sequentially in the array `values`.  The two ints
+    // `v.arg0` and `v.arg1` in an arithmetic value are indexes into `values`.
+    //
+    // The main reason to store all values in a flat array, rather than a tree,
+    // is for "common subexpression elimination" (see valueToIndex).
+    //
     var values = [
-        {type: "arg", arg0: null, arg1: null, id: "z_re"},
-        {type: "arg", arg0: null, arg1: null, id: "z_im"}
+        {type: "arg", arg0: "z_re", arg1: null},
+        {type: "arg", arg0: "z_im", arg1: null}
     ];
 
-    function nodesEqual(n1, n2) {
+    // `values(n1, n2)` returns true if the two arguments `n1` and `n2` are
+    // equal values—that is, if it would be redundant to compute them both,
+    // because they are certain to have the same result.
+    //
+    // (This could be more sophisticated; it does not detect, for example, that
+    // a+1 is equal to 1+a.)
+    //
+    function valuesEqual(n1, n2) {
         return n1.type === n2.type && n1.arg0 === n2.arg0 && n1.arg1 === n2.arg1;
     }
 
-    function toIndex(node) {
+    // Return the index of `v` within `values`, adding it to `values` if needed.
+    function valueToIndex(v) {
         // Common subexpression elimination. If we have already computed this
         // exact value, instead of computing it again, just reuse the already-
         // computed value.
         for (var i = 0; i < values.length; i++) {
-            if (nodesEqual(values[i], node))
+            if (valuesEqual(values[i], v))
                 return i;
         }
 
-        // We have not already computed this value, so add the instruction to
+        // We have not already computed this value, so add the value to
         // the list.
-        values.push(node);
+        values.push(v);
         return values.length - 1;
     }
 
     function num(s) {
-        return toIndex({type: "number", arg0: s, arg1: null});
+        return valueToIndex({type: "number", arg0: s, arg1: null});
     }
 
     function op(op, a, b) {
-        return toIndex({type: op, arg0: a, arg1: b });
+        return valueToIndex({type: op, arg0: a, arg1: b });
     }
 
     function isNumber(i) {
@@ -472,38 +509,31 @@ function compileToComplexFunction(code) {
         return useCounts;
     }
 
-    var nextid = 0;
+    function ir_to_js(values, result) {
+        var useCounts = computeUseCounts(values);
+        var code = "";
+        var next_temp_id = 0;
+        var js = [];
+        for (var i = 0; i < values.length; i++) {
+            var node = values[i];
+            if (node.type === "number" || node.type === "arg")
+                js[i] = node.arg0;
+            else
+                js[i] = "(" + js[node.arg0] + node.type + js[node.arg1] + ")";
 
-    function to_js(i, force) {
-        var node = values[i];
-        if (node.type === "number")
-            return node.arg0;
-
-        if (!force) {
-            if (node.id !== undefined)
-                return node.id;
             if (useCounts[i] > 1) {
-                node.id = "t" + nextid++;
-                return node.id;
+                var name = "t" + next_temp_id++;
+                code += "var " + name + " = " + js[i] + ";\n";
+                js[i] = name;
             }
         }
-
-        switch (node.type) {
-        case "+": case "-": case "*": case "/":
-            return "(" + to_js(node.arg0) + node.type + to_js(node.arg1) + ")";
-        default:
-            throw ValueError("internal error: unexpected LIR node type: " + node.type);
-        }
+        code += "return {re: " + js[result.re] + ", im: " + js[result.im] + "};\n";
+        return code;
     }
 
-    var result = lower(parse(code));
-    var useCounts = computeUseCounts(values);
-    var code = "return {re: " + to_js(result.re, false) + ", im: " + to_js(result.im, false) + "};\n";
-    for (var i = values.length - 1; i >= 0; i--) {
-        var node = values[i];
-        if (node.id !== undefined && node.type !== "arg")
-            code = "var " + node.id + " = " + to_js(i, true) + ";\n" + code;
-    }
+    var ast = parse(code);
+    var result = lower(ast);
+    var code = ir_to_js(values, result);
     console.log(code);
     return Function("z_re, z_im", code);
 
