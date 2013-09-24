@@ -341,7 +341,7 @@ function compileToComplexFunction(code) {
         if (isZero(b))  // simplify (a+0) to a
             return a;
         if (isNumber(a) && isNumber(b))  // constant-fold (1+2) to 3
-            return num(String(Number(a.arg0) + Number(b.arg0)));
+            return num(String(Number(values[a].arg0) + Number(values[b].arg0)));
         return op("+", a, b);
     }
 
@@ -349,7 +349,7 @@ function compileToComplexFunction(code) {
         if (isZero(b))  // simplify (a-0) to a
             return a;
         if (isNumber(a) && isNumber(b))  // constant-fold (3-2) to 1
-            return num(String(Number(a.arg0) - Number(b.arg0)));
+            return num(String(Number(values[a].arg0) - Number(values[b].arg0)));
         return op("-", a, b);
     }
 
@@ -363,7 +363,7 @@ function compileToComplexFunction(code) {
         if (isOne(b))  // simplify a*1 to a
             return a;
         if (isNumber(a) && isNumber(b))  // constant-fold (2*2) to 4
-            return num(String(Number(a.arg0) * Number(b.arg0)));
+            return num(String(Number(values[a].arg0) * Number(values[b].arg0)));
         return op("*", a, b);
     }
 
@@ -371,7 +371,7 @@ function compileToComplexFunction(code) {
         if (isOne(b))  // simplify a/1 to a
             return a;
         if (isNumber(a) && isNumber(b) && !isZero(b))  // constant-fold 4/2 to 2
-            return num(String(Number(a.arg0) / Number(b.arg0)));
+            return num(String(Number(values[a].arg0) / Number(values[b].arg0)));
         return op("/", a, b);
     }
 
