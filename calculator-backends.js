@@ -290,92 +290,166 @@ assert.strictEqual(compileToJSFunction("x*x - 2*x + 1")(4), 9);
 // Here is a more advanced example of code generation.
 //
 function compileToComplexFunction(code) {
-    var nextTmpId = 0;
+    var values = [
+        {type: "arg", arg0: null, arg1: null, useCount: 0, id: "z_re"},
+        {type: "arg", arg0: null, arg1: null, useCount: 0, id: "z_im"}
+    ];
 
-    function genName() {
-        return "tmp" + nextTmpId++;
+    function nodesEqual(n1, n2) {
+        return n1.type === n2.type && n1.arg0 === n2.arg0 && n1.arg1 === n2.arg1;
     }
 
-    function emit(obj) {
+    function toIndex(node) {
+        for (var i = 0; i < values.length; i++) {
+            if (nodesEqual(values[i], node))
+                return i;
+        }
+        values.push(node);
+        return values.length - 1;
+    }
+
+    function num(s) { return toIndex({type: "number", arg0: s, arg1: null, useCount: 0}); }
+
+
+    function isZero(i) {
+        var node = values[i];
+        return node.type === "number" && node.arg0 === "0";
+    }
+
+    function isOne(i) {
+        var node = values[i];
+        return node.type === "number" && node.arg0 === "1";
+    }
+
+    function op(op, a, b) {
+        // First, attempt a few peephole optimizations.
+        switch (op) {
+        case "+":
+            if (isZero(a)) {
+                values[b].useCount++;  // simplify (0+b) to b
+                return b;
+            }
+            if (isZero(b)) {
+                values[a].useCount++;  // simplify (a+0) to a
+                return a;
+            }
+            break;
+
+        case "-":
+            if (isZero(b)) {
+                values[a].useCount++;  // simplify (a-0) to a
+                return a;
+            }
+            break;
+
+        case "*":
+            if (isZero(a))
+                return a;  // simplify 0*b to 0
+            if (isZero(b))
+                return b;  // simplify a*0 to 0
+            if (isOne(a)) {
+                values[b].useCount++;  // simplify 1*b to b
+                return b;
+            }
+            if (isOne(b)) {
+                values[a].useCount++;  // simplify a*1 to a
+                return a;
+            }
+            break;
+        }
+
+        var n = values.length;
+        var result = toIndex({type: op, arg0: a, arg1: b, useCount: 0});
+        if (result === n) {
+            values[a].useCount++;
+            values[b].useCount++;
+        }
+        return result;
+    }
+
+    function add(a, b) { return op("+", a, b); }
+    function sub(a, b) { return op("-", a, b); }
+    function mul(a, b) { return op("*", a, b); }
+    function div(a, b) { return op("/", a, b); }
+
+    // Reduce obj, which represents an operation on complex numbers,
+    // to a pair of expressions on floating-point numbers.
+    function lower(obj) {
         switch (obj.type) {
         case "number":
-            return { setup: "", re: obj.value, im: "0" };
+            return {re: num(obj.value), im: num("0")};
 
         case "+": case "-":
-            var a = emit(obj.left), b = emit(obj.right);
+            var a = lower(obj.left), b = lower(obj.right);
             return {
-                setup: a.setup + b.setup,
-                re: a.re + " " + obj.type + " (" + b.re + ")",
-                im: a.im + " " + obj.type + " (" + b.im + ")"
+                re: op(obj.type, a.re, b.re),
+                im: op(obj.type, a.im, b.im)
             };
 
         case "*":
-            var a = emit(obj.left), b = emit(obj.right);
-
-            // This requires some setup.  First write some code to store the
-            // real and imaginary parts of a and b in temporary variables.
-            // We have to store them in temporary variables because the formula
-            // for complex multiplication uses each component twice, and we
-            // don’t want to compute them twice.
-            var atmp = genName(),
-                btmp = genName();
-            var setup = a.setup + b.setup +
-                ("var A_re = " + a.re + ", A_im = " + a.im + ";\n").replace(/A/g, atmp) +
-                ("var B_re = " + b.re + ", B_im = " + b.im + ";\n").replace(/B/g, btmp);
-
-            // Now return the setup, along with expressions for computing the
-            // real and imaginary parts of (a * b).
+            var a = lower(obj.left), b = lower(obj.right);
             return {
-                setup: setup,
-                re: "A_re * B_re - A_im * B_im".replace(/A/g, atmp).replace(/B/g, btmp),
-                im: "A_re * B_im + A_im * B_re".replace(/A/g, atmp).replace(/B/g, btmp)
+                re: sub(mul(a.re, b.re), mul(a.im, b.im)),
+                im: add(mul(a.re, b.im), mul(a.im, b.re))
             };
 
         case "/":
-            var a = emit(obj.left), b = emit(obj.right);
-
-            // Just as for multiplication, first write some code to store the real
-            // and imaginary parts of a and b in temporary variables.
-            var atmp = genName(),
-                btmp = genName(),
-                tmp = genName();
-            var setup = a.setup + b.setup +
-                ("var A_re = " + a.re + ", A_im = " + a.im + ";\n").replace(/A/g, atmp) +
-                ("var B_re = " + b.re + ", B_im = " + b.im + ";\n").replace(/B/g, btmp) +
-                ("var T = B_re * B_re + B_im * B_im;\n").replace(/T/g, tmp).replace(/B/g, btmp);
+            var a = lower(obj.left), b = lower(obj.right);
+            var t = add(mul(b.re, b.re), mul(b.im, b.im));
             return {
-                setup: setup,
-                re: "(A_re * B_re + A_im * B_im) / T".replace(/A/g, atmp).replace(/B/g, btmp).replace(/T/g, tmp),
-                im: "(A_im * B_re - A_re * B_im) / T".replace(/A/g, atmp).replace(/B/g, btmp).replace(/T/g, tmp)
+                re: div(add(mul(a.re, b.re), mul(a.im, b.im)), t),
+                im: div(sub(mul(a.im, b.re), mul(a.re, b.im)), t)
             };
 
         case "name":
             if (obj.id === "i")
-                return {setup: "", re: "0", im: "1"};
+                return {re: num("0"), im: num("1")};
             if (obj.id !== "z")
                 throw SyntaxError("undefined variable: " + obj.id);
-            return {
-                setup: "",
-                re: obj.id + "_re",
-                im: obj.id + "_im"
-            };
+            // A little subtle here: values[0] is z_re; values[1] is z_im.
+            return {re: 0, im: 1};
         }
     }
 
-    var result = emit(parse(code));
-    var code =
-        result.setup +
-        "return {re: " + result.re + ", im: " + result.im + "};\n";
+    var nextid = 0;
+
+    function to_js(i, force) {
+        var node = values[i];
+        if (node.type === "number")
+            return node.arg0;
+
+        if (!force) {
+            if (node.id !== undefined)
+                return node.id;
+            if (node.useCount > 1) {
+                node.id = "t" + nextid++;
+                return node.id;
+            }
+        }
+
+        switch (node.type) {
+        case "+": case "-": case "*": case "/":
+            return "(" + to_js(node.arg0) + node.type + to_js(node.arg1) + ")";
+        default:
+            throw ValueError("internal error: unexpected LIR node type: " + node.type);
+        }
+    }
+
+    var result = lower(parse(code));
+
+    var code = "return {re: " + to_js(result.re, false) + ", im: " + to_js(result.im, false) + "};\n";
+    for (var i = values.length - 1; i >= 0; i--) {
+        var node = values[i];
+        if (node.id !== undefined && node.type !== "arg")
+            code = "var " + node.id + " = " + to_js(i, true) + ";\n" + code;
+    }
+    console.log(code);
     return Function("z_re, z_im", code);
 
     /*
       I had planned to have this generate asm.js code for extra speed, but it's
       so fast already that unless I can think of a more computationally
       intensive task, there is no need.
-         result.setup +
-         "var " + tmp + " = " + result.re + ";\n" +
-         "z_im = " + result.im + ";\n" +
-         "z_re = " + tmp + ";\n" +
     */
 }
 
