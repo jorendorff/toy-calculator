@@ -397,14 +397,18 @@ function compileToComplexFunction(code) {
         }
     }
 
-    var binaryOps = {"+": 1, "-": 1, "*": 1, "/": 1};
-    var useCounts = [];
-    for (var i = 0; i < values.length; i++) {
-        useCounts[i] = 0;
-        if (values[i].type in binaryOps) {
-            useCounts[node.arg0]++;
-            useCounts[node.arg1]++;
+    function computeUseCounts(values) {
+        var binaryOps = {"+": 1, "-": 1, "*": 1, "/": 1};
+        var useCounts = [];
+        for (var i = 0; i < values.length; i++) {
+            useCounts[i] = 0;
+            var node = values[i];
+            if (node.type in binaryOps) {
+                useCounts[node.arg0]++;
+                useCounts[node.arg1]++;
+            }
         }
+        return useCounts;
     }
 
     var nextid = 0;
@@ -432,7 +436,7 @@ function compileToComplexFunction(code) {
     }
 
     var result = lower(parse(code));
-
+    var useCounts = computeUseCounts(values);
     var code = "return {re: " + to_js(result.re, false) + ", im: " + to_js(result.im, false) + "};\n";
     for (var i = values.length - 1; i >= 0; i--) {
         var node = values[i];
