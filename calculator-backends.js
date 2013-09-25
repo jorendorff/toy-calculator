@@ -316,11 +316,11 @@ function compileToComplexFunction(code) {
     //    operations on complex numbers.
     //
     // 2. Then, it *lowers* the AST to an *intermediate representation*, or
-    //    *IR* that’s sort of halfway between the AST and JS code.
+    //    *IR*, that’s sort of halfway between the AST and JS code.
     //
     //    The IR here is an array of *values*, basic arithmetic operations on
     //    plain old JS floating-point numbers. If we end up needing JS to
-    //    compute `(z_re + 1) * (z_re - 1), then each subexpression there ends
+    //    compute `(z_re + 1) * (z_re - 1)`, then each subexpression there ends
     //    up being a value, represented by an object in the IR.
     //
     //    Once we have the IR, we can throw away the AST. The IR represents the
@@ -339,8 +339,8 @@ function compileToComplexFunction(code) {
 
     // #### About the IR
     //
-    // Before we implement lower(), we need to define objects representing
-    // values. (We could just use strings of JS code, but it turns
+    // Before we implement `ast_to_ir()`, we need to define objects
+    // representing values. (We could just use strings of JS code, but it turns
     // out to be really complicated, and it’s hard to apply even basic
     // optimizations to strings.)
     //
@@ -369,18 +369,19 @@ function compileToComplexFunction(code) {
         {type: "arg", arg0: "z_im", arg1: null}
     ];
 
-    // `values(n1, n2)` returns true if the two arguments `n1` and `n2` are
-    // equal values—that is, if it would be redundant to compute them both,
-    // because they are certain to have the same result.
+    // **valuesEqual(*n1*, *n2*)** returns true if the two arguments *n1* and
+    // *n2* are equal IR nodes—that is, if it would be redundant to compute them
+    // both, because they are certain to have the same result.
     //
     // (This could be more sophisticated; it does not detect, for example, that
-    // a+1 is equal to 1+a.)
+    // `a+1` is equal to `1+a`.)
     //
     function valuesEqual(n1, n2) {
         return n1.type === n2.type && n1.arg0 === n2.arg0 && n1.arg1 === n2.arg1;
     }
 
-    // Return the index of `v` within `values`, adding it to `values` if needed.
+    // **valueToIndex(*v*)** ensures that *v* is in *values*. Returns the index
+    // **of *v* within the array.
     function valueToIndex(v) {
         // Common subexpression elimination. If we have already computed this
         // exact value, instead of computing it again, just reuse the already-
@@ -404,6 +405,7 @@ function compileToComplexFunction(code) {
         return valueToIndex({type: op, arg0: a, arg1: b });
     }
 
+    // A few predicates used to implement some simple optimizations below.
     function isNumber(i) {
         return values[i].type === "number";
     }
@@ -416,6 +418,9 @@ function compileToComplexFunction(code) {
         return isNumber(i) && values[i].arg0 === "1";
     }
 
+    // Each of these four functions ensures that an IR node for a certain
+    // computation has been added to `values`, and returns the index of that
+    // node.
     function add(a, b) {
         if (isZero(a))  // simplify (0+b) to b
             return b;
