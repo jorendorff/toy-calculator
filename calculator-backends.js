@@ -457,13 +457,13 @@ function compileToComplexFunction(code) {
 
     // Reduce obj, which represents an operation on complex numbers,
     // to a pair of expressions on floating-point numbers.
-    function lower(obj) {
+    function ast_to_ir(obj) {
         switch (obj.type) {
         case "number":
             return {re: num(obj.value), im: num("0")};
 
         case "+": case "-":
-            var a = lower(obj.left), b = lower(obj.right);
+            var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             var f = (obj.type === "+" ? add : sub);
             return {
                 re: f(a.re, b.re),
@@ -471,14 +471,14 @@ function compileToComplexFunction(code) {
             };
 
         case "*":
-            var a = lower(obj.left), b = lower(obj.right);
+            var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             return {
                 re: sub(mul(a.re, b.re), mul(a.im, b.im)),
                 im: add(mul(a.re, b.im), mul(a.im, b.re))
             };
 
         case "/":
-            var a = lower(obj.left), b = lower(obj.right);
+            var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             var t = add(mul(b.re, b.re), mul(b.im, b.im));
             return {
                 re: div(add(mul(a.re, b.re), mul(a.im, b.im)), t),
@@ -509,22 +509,22 @@ function compileToComplexFunction(code) {
         return useCounts;
     }
 
-    function irToJS(values, result) {
+    function ir_to_js(values, result) {
         var useCounts = computeUseCounts(values);
         var code = "";
         var next_temp_id = 0;
         var js = [];
         for (var i = 0; i < values.length; i++) {
             var node = values[i];
-            if (node.type === "number" || node.type === "arg")
+            if (node.type === "number" || node.type === "arg") {
                 js[i] = node.arg0;
-            else
+            } else {
                 js[i] = "(" + js[node.arg0] + node.type + js[node.arg1] + ")";
-
-            if (useCounts[i] > 1) {
-                var name = "t" + next_temp_id++;
-                code += "var " + name + " = " + js[i] + ";\n";
-                js[i] = name;
+                if (useCounts[i] > 1) {
+                    var name = "t" + next_temp_id++;
+                    code += "var " + name + " = " + js[i] + ";\n";
+                    js[i] = name;
+                }
             }
         }
         code += "return {re: " + js[result.re] + ", im: " + js[result.im] + "};\n";
@@ -532,8 +532,8 @@ function compileToComplexFunction(code) {
     }
 
     var ast = parse(code);
-    var result = lower(ast);
-    var code = irToJS(values, result);
+    var result = ast_to_ir(ast);
+    var code = ir_to_js(values, result);
     console.log(code);
     return Function("z_re, z_im", code);
 
