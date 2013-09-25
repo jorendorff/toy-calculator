@@ -461,10 +461,14 @@ function compileToComplexFunction(code) {
         return op("/", a, b);
     }
 
-    // Reduce obj, which represents an operation on complex numbers, to a pair
-    // of expressions on floating-point numbers.
+    // **ast_to_ir(*obj*)** reduces *obj*, which represents an operation on
+    // complex numbers, to a sequence of operations on floating-point numbers.
     //
-    // As a side effect, this populates the array `values` with IR objects.
+    // It adds IR nodes representing those operations to *values*.
+    //
+    // Returns an object `{im: int, re: int}` giving the index, in *values*, of
+    // the IR nodes representing the real part and the imaginary part of the
+    // answer.
     //
     function ast_to_ir(obj) {
         switch (obj.type) {
