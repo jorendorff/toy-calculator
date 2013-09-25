@@ -466,15 +466,11 @@ function compileToComplexFunction(code) {
         case "number":
             return {re: num(obj.value), im: num("0")};
 
-        // Implement each arithmetic operation. All of these begin by calling
-        // `ast_to_ir` recursively on the operands. Then we create IR to carry
-        // out the algorithms for arithmetic on complex numbers:
+        // Complex arithmetic. Start by calling `ast_to_ir` recursively on the
+        // operands. The rest is just standard formulas:
         //
-        // Re(*a* + *b*) = Re(*a*) + Re(*b*)<br>
-        // Im(*a* + *b*) = Im(*a*) + Im(*b*)
-        //
-        // Re(*a* − *b*) = Re(*a*) − Re(*b*)<br>
-        // Im(*a* − *b*) = Im(*a*) − Im(*b*)
+        // Re(*a* ± *b*) = Re(*a*) ± Re(*b*)<br>
+        // Im(*a* ± *b*) = Im(*a*) ± Im(*b*)
         //
         case "+": case "-":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
@@ -486,8 +482,9 @@ function compileToComplexFunction(code) {
 
         // Multiplication:
         //
-        // Re(*a* × *b*) = Re(*a*) × Re(*b*) − Im(*a*) × Im(*b*)
+        // Re(*a* × *b*) = Re(*a*) × Re(*b*) − Im(*a*) × Im(*b*)<br>
         // Im(*a* × *b*) = Re(*a*) × Im(*b*) + Im(*a*) × Re(*b*)
+        //
         case "*":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             return {
@@ -500,6 +497,7 @@ function compileToComplexFunction(code) {
         // Re(*a* ÷ *b*) = (Re(*a*) × Re(*b*) + Im(*a*) × Im(*b*)) ÷ *t*<br>
         // Im(*a* ÷ *b*) = (Im(*a*) × Re(*b*) − Re(*a*) × Im(*b*)) ÷ *t*<br>
         // where *t* = Re(*b*)² + Im(*b*)²
+        //
         case "/":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             var t = add(mul(b.re, b.re), mul(b.im, b.im));
