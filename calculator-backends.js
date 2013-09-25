@@ -260,17 +260,16 @@ assert.strictEqual(
 // they are virtually identical, so code generation is very easy.
 //
 function compileToJSFunction(code) {
-    function emit(obj) {
-        switch (obj.type) {
+    function emit(ast) {
+        switch (ast.type) {
         case "number":
-            return obj.value;
+            return ast.value;
         case "name":
-            // Only allow the name "x".
-            if (obj.id !== "x")
+            if (ast.id !== "x")
                 throw SyntaxError("only the name 'x' is allowed");
-            return obj.id;
+            return ast.id;
         case "+": case "-": case "*": case "/":
-            return "(" + emit(obj.left) + " " + obj.type + " " + emit(obj.right) + ")";
+            return "(" + emit(ast.left) + " " + ast.type + " " + emit(ast.right) + ")";
         }
     }
 
@@ -316,8 +315,8 @@ function compileToComplexFunction(code) {
     // 1. It uses `parse` as its front end. We get an AST that represents
     //    operations on complex numbers.
     //
-    // 2. Then, it **lowers** the AST to an *intermediate representation* (IR)
-    //    that’s sort of halfway between the AST and JS code.
+    // 2. Then, it *lowers* the AST to an *intermediate representation*, or
+    //    *IR* that’s sort of halfway between the AST and JS code.
     //
     //    The IR here is an array of *values*, basic arithmetic operations on
     //    plain old JS floating-point numbers. If we end up needing JS to
@@ -326,21 +325,23 @@ function compileToComplexFunction(code) {
     //
     //    Once we have the IR, we can throw away the AST. The IR represents the
     //    same formula, but in a different form. Lowering breaks down complex
-    //    arithmetic into sequences of JS numeric operations.  JS won't know
-    //    it's doing complex math.
+    //    arithmetic into sequences of JS numeric operations.  JS won’t know
+    //    it’s doing complex math.
     //
     // 3. Lastly, we convert the IR to JS code.
     //
-    // **Why lowering?** We don't have to do it this way; we could define a
-    // class `Complex`, with methods `.add()`, `.sub()`, etc., and generate JS
-    // code that uses that.  Lowering leads to faster JS code: we'll generate
-    // code here that does not allocate any objects for intermediate results.
+    // **Why IR?** We don’t have to do it this way; we could define a class
+    // `Complex`, with methods `.add()`, `.sub()`, etc., and generate JS code
+    // that uses that.  Our back-end would be less than 20 lines.  But
+    // using IR helps us generate faster JS code. In particular, we’ll avoid
+    // allocating any objects for intermediate results and without any need
+    // for a `Complex` runtime library.
 
     // #### About the IR
     //
     // Before we implement lower(), we need to define objects representing
     // values. (We could just use strings of JS code, but it turns
-    // out to be really complicated, and it's hard to apply even basic
+    // out to be really complicated, and it’s hard to apply even basic
     // optimizations to strings.)
     //
     // We call these instructions "values".  Each value represents a single JS
@@ -455,13 +456,26 @@ function compileToComplexFunction(code) {
         return op("/", a, b);
     }
 
-    // Reduce obj, which represents an operation on complex numbers,
-    // to a pair of expressions on floating-point numbers.
+    // Reduce obj, which represents an operation on complex numbers, to a pair
+    // of expressions on floating-point numbers.
+    //
+    // As a side effect, this populates the array `values` with IR objects.
+    //
     function ast_to_ir(obj) {
         switch (obj.type) {
         case "number":
             return {re: num(obj.value), im: num("0")};
 
+        // Implement each arithmetic operation. All of these begin by calling
+        // `ast_to_ir` recursively on the operands. Then we create IR to carry
+        // out the algorithms for arithmetic on complex numbers:
+        //
+        // Re(*a* + *b*) = Re(*a*) + Re(*b*)<br>
+        // Im(*a* + *b*) = Im(*a*) + Im(*b*)
+        //
+        // Re(*a* − *b*) = Re(*a*) − Re(*b*)<br>
+        // Im(*a* − *b*) = Im(*a*) − Im(*b*)
+        //
         case "+": case "-":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             var f = (obj.type === "+" ? add : sub);
@@ -470,6 +484,10 @@ function compileToComplexFunction(code) {
                 im: f(a.im, b.im)
             };
 
+        // Multiplication:
+        //
+        // Re(*a* × *b*) = Re(*a*) × Re(*b*) − Im(*a*) × Im(*b*)
+        // Im(*a* × *b*) = Re(*a*) × Im(*b*) + Im(*a*) × Re(*b*)
         case "*":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             return {
@@ -477,6 +495,11 @@ function compileToComplexFunction(code) {
                 im: add(mul(a.re, b.im), mul(a.im, b.re))
             };
 
+        // Division:
+        //
+        // Re(*a* ÷ *b*) = (Re(*a*) × Re(*b*) + Im(*a*) × Im(*b*)) ÷ *t*<br>
+        // Im(*a* ÷ *b*) = (Im(*a*) × Re(*b*) − Re(*a*) × Im(*b*)) ÷ *t*<br>
+        // where *t* = Re(*b*)² + Im(*b*)²
         case "/":
             var a = ast_to_ir(obj.left), b = ast_to_ir(obj.right);
             var t = add(mul(b.re, b.re), mul(b.im, b.im));
@@ -488,13 +511,20 @@ function compileToComplexFunction(code) {
         case "name":
             if (obj.id === "i")
                 return {re: num("0"), im: num("1")};
-            if (obj.id !== "z")
-                throw SyntaxError("undefined variable: " + obj.id);
-            // A little subtle here: values[0] is z_re; values[1] is z_im.
-            return {re: 0, im: 1};
+
+            // A little subtle here: `values[0]` is the IR node for `z_re`;
+            // `values[1]` is `z_im`.
+            if (obj.id === "z")
+                return {re: 0, im: 1};
+
+            throw SyntaxError("undefined variable: " + obj.id);
         }
     }
 
+    // Figure out how many times each value is used in subsequent calculations.
+    // This is how we avoid emitting all the code for a value every time it is
+    // used. As we generate JS, whenever we reach a value that is used multiple
+    // times, we’ll write out a `var` statement.
     function computeUseCounts(values) {
         var binaryOps = {"+": 1, "-": 1, "*": 1, "/": 1};
         var useCounts = [];
@@ -509,6 +539,7 @@ function compileToComplexFunction(code) {
         return useCounts;
     }
 
+    // Step 3: Convert the IR to JavaScript.
     function ir_to_js(values, result) {
         var useCounts = computeUseCounts(values);
         var code = "";
@@ -538,7 +569,7 @@ function compileToComplexFunction(code) {
     return Function("z_re, z_im", code);
 
     /*
-      I had planned to have this generate asm.js code for extra speed, but it's
+      I had planned to have this generate asm.js code for extra speed, but it’s
       so fast already that unless I can think of a more computationally
       intensive task, there is no need.
     */
